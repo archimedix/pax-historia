@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Catalog entries for Qwen3.6 Plus and DeepSeek (V3 + R1 reasoning) via OpenRouter.
+- Catalog entries for Qwen3.6 Plus and DeepSeek V4 (Pro + Flash) via OpenRouter.
 - **Server-managed AI models.** The server can now expose a catalog of
   pre-configured models (`server/config/serverModels.json`) and proxy chat
   completions to OpenAI-compatible upstreams (OpenRouter, OpenAI, …). API keys
