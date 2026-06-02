@@ -120,9 +120,17 @@ const Main = ({
 
   const [apiProvider, setApiProvider] = useState(() => getStoredProvider());
   const [providerSettings, setProviderSettings] = useState(() => loadProviderSettingsFormState());
+  const [serverModels, setServerModels] = useState([]);
 
   useEffect(() => {
     if (!checkWebGL()) setShowWebGLWarning(true);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setServerModels(data?.serverModels ?? []))
+      .catch(() => setServerModels([]));
   }, []);
 
   useEffect(() => {
@@ -228,6 +236,7 @@ const Main = ({
           onApiProviderChange={setApiProvider}
           providerSettings={providerSettings}
           onProviderSettingChange={handleProviderSettingChange}
+          serverModels={serverModels}
         />
       )}
     </>

@@ -371,6 +371,25 @@ async function callOpenAICompatible(systemPrompt, history, opts = {}) {
     });
 }
 
+async function callServerModel(systemPrompt, history, opts = {}) {
+    const settings = getProviderSettings("server");
+    const modelId = settings.model.trim();
+
+    if (!modelId) {
+        throw new Error("Go to **settings**, select Server, and choose a model.");
+    }
+
+    return callOpenAIStyleChatCompletions({
+        endpoint: `/api/llm/${encodeURIComponent(modelId)}`,
+        headers: { "Content-Type": "application/json" },
+        model: modelId,
+        systemPrompt,
+        history,
+        providerLabel: "Server",
+        ...opts,
+    });
+}
+
 async function callAnthropic(systemPrompt, history, { retries = 3, retryDelay = 15000 } = {}) {
     const settings = getProviderSettings("anthropic");
     const apiKey = settings.apiKey.trim();
@@ -438,6 +457,8 @@ export async function callAI(systemPrompt, history, opts) {
         return callAnthropic(systemPrompt, history, opts);
     case "openai-compatible":
         return callOpenAICompatible(systemPrompt, history, opts);
+    case "server":
+        return callServerModel(systemPrompt, history, opts);
     case "gemini":
     default:
         return callGemini(systemPrompt, history, opts);

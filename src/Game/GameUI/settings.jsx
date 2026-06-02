@@ -291,7 +291,7 @@ const SettingsInput = ({
     </div>
 );
 
-const ProviderSettingsPanel = ({ provider, settings, onSettingChange }) => {
+const ProviderSettingsPanel = ({ provider, settings, onSettingChange, serverModels = [] }) => {
     const meta = getProviderMeta(provider);
     const supportsModelDiscovery = providerSupportsModelDiscovery(provider);
 
@@ -401,6 +401,37 @@ const ProviderSettingsPanel = ({ provider, settings, onSettingChange }) => {
             helperText="Leave blank to auto-pick a model from /models."
             />
             </>
+        )}
+
+        {provider === "server" && (
+            <div style={fieldGroupStyle}>
+            <label style={labelStyle}>
+            Model
+            </label>
+            {serverModels.length > 0 ? (
+                <select
+                value={settings.serverModel ?? ""}
+                onChange={(event) => onSettingChange("serverModel", event.target.value)}
+                style={inputStyle}
+                >
+                <option value="" disabled>
+                Select a model…
+                </option>
+                {serverModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                    {model.label}
+                    </option>
+                ))}
+                </select>
+            ) : (
+                <div style={{ ...helperStyle, marginTop: 0 }}>
+                No server models configured.
+                </div>
+            )}
+            <div style={helperStyle}>
+            Models and keys are configured on the server.
+            </div>
+            </div>
         )}
         </div>
     );
@@ -524,6 +555,7 @@ const SettingsMenu = ({
     onApiProviderChange,
     providerSettings,
     onProviderSettingChange,
+    serverModels,
     discordUrl,
     githubUrl,
 }) => {
@@ -567,6 +599,7 @@ const SettingsMenu = ({
         provider={selectedProvider}
         settings={providerSettings ?? {}}
         onSettingChange={onProviderSettingChange ?? (() => {})}
+        serverModels={serverModels ?? []}
         />
 
         <Toggle label="Fullscreen" enabled={isFullscreenEnabled} onToggle={onToggleFullscreen} />

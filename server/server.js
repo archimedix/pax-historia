@@ -2,6 +2,8 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import url from "url";
+import { loadEnv } from "./env.js";
+import { getServerModelCatalog, proxyChatCompletion } from "./aiProxy.js";
 import {
   createGame,
   createScenario,
@@ -30,6 +32,8 @@ import {
   uploadScenarioAsset,
   writeRuntimeJsonAsset,
 } from "./libraryStore.js";
+
+loadEnv();
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const app = express();
@@ -328,6 +332,23 @@ app.head("/api/runtime/pmtiles/:assetKey", (req, res) => {
     res.status(200).end();
   } catch (error) {
     sendError(res, 404, error);
+  }
+});
+
+app.get("/api/config", (_req, res) => {
+  try {
+    res.json({ serverModels: getServerModelCatalog() });
+  } catch (error) {
+    sendError(res, 500, error);
+  }
+});
+
+app.post("/api/llm/:modelId/chat/completions", jsonParser, async (req, res) => {
+  try {
+    const { status, json } = await proxyChatCompletion(req.params.modelId, req.body ?? {});
+    res.status(status).json(json);
+  } catch (error) {
+    sendError(res, 502, error);
   }
 });
 

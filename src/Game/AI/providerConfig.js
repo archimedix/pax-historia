@@ -29,6 +29,13 @@ export const PROVIDER_OPTIONS = [
         description: "Ollama, LM Studio, OpenRouter, local gateways",
         searchTerms: ["ollama", "lm studio", "openrouter", "vllm", "gateway", "proxy"],
     },
+    {
+        value: "server",
+        label: "Server",
+        group: "Server (managed)",
+        description: "Models configured and keyed on the server",
+        searchTerms: ["server", "managed", "hosted", "openrouter"],
+    },
 ];
 
 const PROVIDER_SETTINGS = {
@@ -57,6 +64,9 @@ const PROVIDER_SETTINGS = {
             defaultValue: "",
         },
     },
+    server: {
+        model: { storageKey: "server_model", defaultValue: "" },
+    },
 };
 
 const FORM_FIELD_MAP = {
@@ -69,6 +79,7 @@ const FORM_FIELD_MAP = {
     openaiCompatibleApiKey: { provider: "openai-compatible", field: "apiKey" },
     openaiCompatibleEndpoint: { provider: "openai-compatible", field: "endpoint" },
     openaiCompatibleModel: { provider: "openai-compatible", field: "model" },
+    serverModel: { provider: "server", field: "model" },
 };
 
 function isSupportedProvider(value) {
