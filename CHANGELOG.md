@@ -32,9 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `regions` layer is now the authoritative fill for every region, colored by its
   *effective* owner (`override ?? GID_0`); the base `countries` fill is forced
   transparent under any country that has region geometry (it still paints
-  countries with no regions, so no holes appear). Country labels
-  (`runtime/countryLabels.js`) now carry their `GID_0` code and are hidden when a
-  region-subdivided country owns zero remaining regions.
+  countries with no regions, so no holes appear).
+- **Dynamic country labels for reassigned territory.** When regions are
+  reassigned (admin edits → `regionOwnershipOverrides`), the label of every
+  *affected* owner is recomputed from the union of the regions it effectively
+  owns — area-weighted centroid (position), `√Σarea·17500` (size) and the
+  principal axis over the combined vertices (rotation) — so e.g. annexing
+  Slovenia into Croatia grows and repositions the `CROATIA` label, and a country
+  emptied of all regions loses its label entirely. Unaffected countries keep
+  their original (curved) baseline labels untouched. The geometry is derived
+  once from the `regions` tile (`loadRegionLabelGeometry`,
+  `buildDynamicOwnerLabels` in `runtime/countryLabels.js`); no polygon-union
+  dependency, no AI calls — it recomputes from the existing world-state polling.
 - The region info popup (`Selection/Regions.jsx`) now reports a region's *effective*
   owner — name and flag — by honoring `regionOwnershipOverrides`/`polityOverrides`
   instead of the static `GID_0` baked into the tile. An annexed region used to keep

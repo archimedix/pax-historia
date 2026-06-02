@@ -637,3 +637,180 @@ export const warmCountryLabelCollections = async (options = {}) => {
     url: countryLabelsValueKey || COUNTRY_LABELS_CACHE_KEY,
   };
 };
+
+// --- Dynamic owner labels -------------------------------------------------
+// The baseline labels above are computed once from the static `countries`
+// polygons. When the player reassigns regions (admin edits → world.json
+// `regionOwnershipOverrides`) a country's territory no longer matches its base
+// polygon, so its baseline label sits in the wrong place / wrong size. We
+// recompute a fresh point label for every *affected* owner from the union of
+// the regions they effectively own — without a true polygon union: an
+// area-weighted centroid (position), √Σarea·17500 (size) and the principal
+// axis over the combined vertices (rotation). Unaffected countries keep their
+// nicer baseline (curved) labels untouched.
+
+let regionGeometryPromise = null;
+let regionGeometryPromiseKey = null;
+let regionGeometryValue = null;
+let regionGeometryValueKey = null;
+
+const EMPTY_REGION_GEOMETRY = { extent: 4096, regions: [] };
+
+const getRegionsTileData = async () => {
+  const pmtiles = getPmtilesArchive(PMTILES_ARCHIVES.regions);
+  return pmtiles.getZxy(0, 0, 0);
+};
+
+const buildRegionLabelGeometry = async (tileData) => {
+  if (!tileData?.data) return EMPTY_REGION_GEOMETRY;
+
+  const tile = await decodeVectorTile(tileData.data);
+  const layer = tile.layers.regions;
+  if (!layer) return EMPTY_REGION_GEOMETRY;
+
+  const extent = layer.extent || 4096;
+  const regions = [];
+
+  for (let index = 0; index < layer.length; index += 1) {
+    const feature = layer.feature(index);
+    const props = feature.properties;
+    const id = props?.GID_1 || props?.gid_1 || props?.HASC_1 || props?.fid;
+    if (!id) continue;
+
+    const code = props?.GID_0 || props?.gid_0 || "";
+    const country = resolveCountryDisplayName(
+      props?.COUNTRY || props?.Country || props?.country,
+      code,
+    );
+
+    const geometry = feature.loadGeometry();
+    let bestRing = null;
+    let bestArea = -1;
+    for (const ring of geometry) {
+      const ringPoints = ring.map((point) => [point.x, point.y]);
+      const area = calculateArea(ringPoints);
+      if (area > bestArea) {
+        bestArea = area;
+        bestRing = ringPoints;
+      }
+    }
+    if (!bestRing) continue;
+
+    const { cx, cy } = getCentroid(bestRing);
+    regions.push({
+      id: String(id),
+      code: String(code),
+      country,
+      ring: bestRing,
+      centroid: [cx, cy],
+      areaLngLat: calculateArea(ringToLngLat(bestRing, extent)),
+    });
+  }
+
+  return { extent, regions };
+};
+
+// Largest-ring geometry for every region, derived once from the regions tile
+// (the same z0 tile loadRegionCatalog reads). In-memory cache only — it is
+// static map data, so no runtime-json persistence is needed.
+export const loadRegionLabelGeometry = async ({ force = false } = {}) => {
+  const cacheKey = PMTILES_ARCHIVES.regions;
+
+  if (!force && regionGeometryValue && regionGeometryValueKey === cacheKey) {
+    return regionGeometryValue;
+  }
+  if (!force && regionGeometryPromise && regionGeometryPromiseKey === cacheKey) {
+    return regionGeometryPromise;
+  }
+
+  const request = (async () => {
+    const tileData = await getRegionsTileData();
+    return buildRegionLabelGeometry(tileData);
+  })()
+    .then((value) => {
+      regionGeometryValue = value;
+      regionGeometryValueKey = cacheKey;
+      return value;
+    })
+    .catch((error) => {
+      console.error("Failed to build region label geometry:", error);
+      regionGeometryValue = EMPTY_REGION_GEOMETRY;
+      regionGeometryValueKey = cacheKey;
+      return regionGeometryValue;
+    })
+    .finally(() => {
+      regionGeometryPromise = null;
+      regionGeometryPromiseKey = null;
+    });
+
+  regionGeometryPromise = request;
+  regionGeometryPromiseKey = cacheKey;
+  return request;
+};
+
+const EMPTY_DYNAMIC_LABELS = { affectedOwners: new Set(), pointFeatures: [] };
+
+// Build point labels for owners whose effective territory differs from their
+// base territory. `overrides` is regionOwnershipOverrides ({[GID_1]: ownerCode});
+// `resolveName(code)` returns the display name for an owner (base country name
+// or polityOverride name). Returns the set of affected owner codes (whose
+// baseline labels the caller should drop) plus a point feature for each owner
+// that still holds at least one region.
+export const buildDynamicOwnerLabels = (geometry, overrides = {}, resolveName) => {
+  const regions = geometry?.regions ?? [];
+  const extent = geometry?.extent ?? 4096;
+  if (!regions.length) return EMPTY_DYNAMIC_LABELS;
+
+  const affectedOwners = new Set();
+  for (const region of regions) {
+    const override = overrides[region.id];
+    if (override && override !== region.code) {
+      affectedOwners.add(region.code); // lost a region
+      affectedOwners.add(override); // gained a region
+    }
+  }
+  if (affectedOwners.size === 0) return EMPTY_DYNAMIC_LABELS;
+
+  const groups = new Map();
+  for (const region of regions) {
+    const owner = overrides[region.id] ?? region.code;
+    if (!affectedOwners.has(owner)) continue;
+    const group = groups.get(owner);
+    if (group) group.push(region);
+    else groups.set(owner, [region]);
+  }
+
+  const pointFeatures = [];
+  for (const [owner, owned] of groups.entries()) {
+    let sumArea = 0;
+    let cx = 0;
+    let cy = 0;
+    const vertices = [];
+    for (const region of owned) {
+      const weight = region.areaLngLat || 0;
+      sumArea += weight;
+      cx += region.centroid[0] * weight;
+      cy += region.centroid[1] * weight;
+      for (const vertex of region.ring) vertices.push(vertex);
+    }
+    if (sumArea <= 0) continue;
+
+    const [lng, lat] = tileToLngLat(cx / sumArea, cy / sumArea, extent);
+    const name = String(resolveName?.(owner) || owner || "").toUpperCase();
+    if (!name) continue;
+
+    pointFeatures.push({
+      type: "Feature",
+      id: `dynamic-${owner}`,
+      geometry: { type: "Point", coordinates: [lng, lat] },
+      properties: {
+        areaScale: Math.sqrt(sumArea) * 17500,
+        code: owner,
+        name,
+        rotation: getPrincipalAxisAngle(vertices),
+      },
+    });
+  }
+
+  return { affectedOwners, pointFeatures };
+};

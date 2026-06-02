@@ -6,13 +6,17 @@ import {
   JSON_URLS,
   PMTILES_PROTOCOL_URLS,
   ensurePmtilesProtocol,
-  loadRegionCatalog,
   readJson,
 } from "../../runtime/assets.js";
-import { loadCountryLabelCollections } from "../../runtime/countryLabels.js";
+import {
+  buildDynamicOwnerLabels,
+  loadCountryLabelCollections,
+  loadRegionLabelGeometry,
+} from "../../runtime/countryLabels.js";
 
 ensurePmtilesProtocol();
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
+const EMPTY_REGION_GEOMETRY = { extent: 4096, regions: [] };
 
 const buildCountryTextSize = (multiplier = 1) => ([
   "interpolate", ["exponential", 2], ["zoom"],
@@ -45,20 +49,15 @@ const fallbackColorFromCode = (code = "") => {
   return `rgb(${64 + a * 5}, ${64 + c * 5}, ${64 + b * 5})`;
 };
 
-// Drop the labels of countries that have been fully carved up: a label is hidden
-// only when its country is region-subdivided AND no longer owns any region (every
-// region was reassigned elsewhere). Countries with no region geometry, or labels
-// without a resolvable code, are always kept.
-const filterLabelsByOwner = (collection, regionCountryCodes, aliveOwners) => {
-  if (regionCountryCodes.size === 0) return collection;
+// Drop the baseline labels of owners whose territory changed (they are replaced
+// by freshly recomputed dynamic labels, or hidden if the owner was emptied). An
+// empty set leaves the collection untouched (and referentially stable).
+const removeFeaturesByCode = (collection, codes) => {
+  if (codes.size === 0) return collection;
 
-  const features = (collection?.features ?? []).filter((feature) => {
-    const code = feature?.properties?.code;
-    if (code && regionCountryCodes.has(code) && !aliveOwners.has(code)) {
-      return false;
-    }
-    return true;
-  });
+  const features = (collection?.features ?? []).filter(
+    (feature) => !codes.has(feature?.properties?.code),
+  );
 
   return { type: "FeatureCollection", features };
 };
@@ -67,7 +66,7 @@ const WorldMap = () => {
   const { current: map } = useMap();
   const [colorMap, setColorMap] = useState({});
   const [worldState, setWorldState] = useState({ regionOwnershipOverrides: {} });
-  const [regionCatalog, setRegionCatalog] = useState([]);
+  const [regionGeometry, setRegionGeometry] = useState(EMPTY_REGION_GEOMETRY);
   const [rawPointLabelData, setRawPointLabelData] = useState(EMPTY_FEATURE_COLLECTION);
   const [rawCurvedLabelData, setRawCurvedLabelData] = useState(EMPTY_FEATURE_COLLECTION);
   const countriesUrl = PMTILES_PROTOCOL_URLS.countries;
@@ -139,17 +138,17 @@ const WorldMap = () => {
     };
   }, []);
 
-  // The full region catalog (viewport-independent) tells us which countries are
-  // drawn at region granularity — used both to keep their base fill transparent
-  // and to detect countries that have lost all their regions.
+  // Largest-ring geometry for every region (viewport-independent). It tells us
+  // which countries are drawn at region granularity (to keep their base fill
+  // transparent) and is the input for recomputing labels of reassigned owners.
   useEffect(() => {
     let cancelled = false;
 
-    loadRegionCatalog()
-      .then((catalog) => {
-        if (!cancelled) setRegionCatalog(catalog ?? []);
+    loadRegionLabelGeometry()
+      .then((geometry) => {
+        if (!cancelled) setRegionGeometry(geometry ?? EMPTY_REGION_GEOMETRY);
       })
-      .catch((error) => console.error("Failed to load region catalog:", error));
+      .catch((error) => console.error("Failed to load region geometry:", error));
 
     return () => {
       cancelled = true;
@@ -159,29 +158,53 @@ const WorldMap = () => {
   // Countries subdivided into regions (their fill is owned by the regions layer).
   const regionCountryCodes = useMemo(() => {
     const codes = new Set();
-    for (const region of regionCatalog) {
-      if (region.countryCode) codes.add(region.countryCode);
+    for (const region of regionGeometry.regions) {
+      if (region.code) codes.add(region.code);
     }
     return codes;
-  }, [regionCatalog]);
+  }, [regionGeometry]);
 
-  // Codes that still own at least one region (effective owner = override ?? GID_0).
-  const aliveOwners = useMemo(() => {
-    const overrides = worldState?.regionOwnershipOverrides ?? {};
-    const owners = new Set();
-    for (const region of regionCatalog) {
-      owners.add(overrides[region.id] ?? region.countryCode);
+  // Display name for any owner code: base country name from the regions tile,
+  // overlaid by polity overrides (covers admin-renamed and newly-created states).
+  const ownerNameByCode = useMemo(() => {
+    const names = new Map();
+    for (const region of regionGeometry.regions) {
+      if (region.code && region.country && !names.has(region.code)) {
+        names.set(region.code, region.country);
+      }
     }
-    return owners;
-  }, [regionCatalog, worldState]);
+    for (const [code, polity] of Object.entries(worldState?.polityOverrides ?? {})) {
+      const resolvedCode = polity?.code || code;
+      if (resolvedCode && polity?.name) names.set(resolvedCode, polity.name);
+    }
+    return names;
+  }, [regionGeometry, worldState]);
 
-  const pointLabelData = useMemo(
-    () => filterLabelsByOwner(rawPointLabelData, regionCountryCodes, aliveOwners),
-    [rawPointLabelData, regionCountryCodes, aliveOwners],
+  // Owners whose territory changed get a freshly recomputed point label; their
+  // stale baseline label (point or curved) is dropped. Owners left with no
+  // region produce no dynamic label, so they simply vanish from the map.
+  const dynamicLabels = useMemo(
+    () =>
+      buildDynamicOwnerLabels(
+        regionGeometry,
+        worldState?.regionOwnershipOverrides ?? {},
+        (code) => ownerNameByCode.get(code),
+      ),
+    [regionGeometry, worldState, ownerNameByCode],
   );
+
+  const pointLabelData = useMemo(() => {
+    const base = removeFeaturesByCode(rawPointLabelData, dynamicLabels.affectedOwners);
+    if (!dynamicLabels.pointFeatures.length) return base;
+    return {
+      type: "FeatureCollection",
+      features: [...base.features, ...dynamicLabels.pointFeatures],
+    };
+  }, [rawPointLabelData, dynamicLabels]);
+
   const curvedLabelData = useMemo(
-    () => filterLabelsByOwner(rawCurvedLabelData, regionCountryCodes, aliveOwners),
-    [rawCurvedLabelData, regionCountryCodes, aliveOwners],
+    () => removeFeaturesByCode(rawCurvedLabelData, dynamicLabels.affectedOwners),
+    [rawCurvedLabelData, dynamicLabels],
   );
 
   // Base country color expression (keyed by GID_0), reused by both layers.
