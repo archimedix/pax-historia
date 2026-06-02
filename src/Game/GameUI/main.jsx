@@ -30,6 +30,9 @@ const baseStyle = {
 const LazyAdvisorPanel = lazy(() =>
   import("./advisor").then((module) => ({ default: module.AdvisorPanel })),
 );
+const LazyAdminPanel = lazy(() =>
+  import("./admin").then((module) => ({ default: module.AdminPanel })),
+);
 
 const checkWebGL = () => {
   try {
@@ -104,6 +107,22 @@ const AdvisorButton = ({ isAdvisorOpen, rightShift, onToggle }) => (
   }}>🧭</button>
 );
 
+const AdminButton = ({ isAdminOpen, rightShift, onToggle }) => (
+  <button
+    title="Editor mappa (Admin)"
+    onClick={onToggle}
+    style={{
+      ...baseStyle,
+      bottom: "5rem", right: rightShift,
+      height: "4rem", width: "4rem",
+      cursor: "pointer", fontSize: "1.5rem",
+      transition: "right 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
+      border: isAdminOpen ? "1px solid #f59e0b" : baseStyle.border,
+      boxShadow: isAdminOpen ? "0 0 0 1px #f59e0b, 0 4px 12px rgba(245,158,11,0.35)" : baseStyle.boxShadow,
+    }}
+  >🛠️</button>
+);
+
 const Main = ({
   mapRef,
   isGlobeEnabled,
@@ -113,8 +132,10 @@ const Main = ({
 }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAdvisorOpen, setIsAdvisorOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [activeBottomPanel, setActiveBottomPanel] = useState(null);
   const [shouldLoadAdvisor, setShouldLoadAdvisor] = useState(false);
+  const [shouldLoadAdmin, setShouldLoadAdmin] = useState(false);
   const [isFullscreenEnabled, setIsFullscreenEnabled] = useState(false);
   const [showWebGLWarning, setShowWebGLWarning] = useState(false);
 
@@ -136,6 +157,10 @@ const Main = ({
   useEffect(() => {
     if (isAdvisorOpen) setShouldLoadAdvisor(true);
   }, [isAdvisorOpen]);
+
+  useEffect(() => {
+    if (isAdminOpen) setShouldLoadAdmin(true);
+  }, [isAdminOpen]);
 
   useEffect(() => {
     localStorage.setItem("Fullscreen", JSON.stringify(isFullscreenEnabled));
@@ -212,6 +237,14 @@ const Main = ({
       />
       <Suspense fallback={null}>
         {shouldLoadAdvisor && <LazyAdvisorPanel isAdvisorOpen={isAdvisorOpen} />}
+      </Suspense>
+      <AdminButton
+        isAdminOpen={isAdminOpen}
+        rightShift={rightShift}
+        onToggle={() => setIsAdminOpen(!isAdminOpen)}
+      />
+      <Suspense fallback={null}>
+        {shouldLoadAdmin && <LazyAdminPanel isAdminOpen={isAdminOpen} topOffset={TOP_BAR_OFFSET} />}
       </Suspense>
       <SettingsButton
         topOffset={TOP_BAR_OFFSET}

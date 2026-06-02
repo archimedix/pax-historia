@@ -7,7 +7,7 @@ import {
   writeRuntimeJson,
 } from "./assets.js";
 
-const COUNTRY_LABELS_CACHE_KEY = "country-labels-v2";
+const COUNTRY_LABELS_CACHE_KEY = "country-labels-v3";
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
 const EMPTY_COUNTRY_LABELS = {
   curvedLabelData: EMPTY_FEATURE_COLLECTION,
@@ -388,6 +388,7 @@ const buildCurvedLabelGlyphFeatures = (
   name,
   areaScale,
   featureId,
+  code,
 ) => {
   if (!pathInfo?.points?.length) return null;
 
@@ -431,6 +432,7 @@ const buildCurvedLabelGlyphFeatures = (
       },
       properties: {
         glyph,
+        code,
         areaScale: areaScale * sizeScale,
         rotation,
       },
@@ -515,6 +517,7 @@ const buildCountryLabelCollections = async (tileData) => {
       name,
       areaScale,
       index,
+      code,
     );
 
     registry.set(name, {
@@ -528,6 +531,7 @@ const buildCountryLabelCollections = async (tileData) => {
             geometry: { type: "Point", coordinates: [lng, lat] },
             properties: {
               areaScale,
+              code,
               name: name.toUpperCase(),
               rotation,
             },

@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin map editor.** A new bottom-left 🛠️ button opens an "Admin mode" panel to
+  edit the active game's map: rename + recolor states, create new states, annex a
+  whole state into another (all its regions transfer at once), and reassign single
+  regions by clicking them on the map. Edits are staged as a draft and persisted to
+  the active game's `world.json` (`polityOverrides`/`regionOwnershipOverrides`) and
+  `colors.json` on save; the map reflects them within ~5s. New files
+  `src/Game/Admin/adminBus.js` (map↔panel bus) and `src/Game/GameUI/admin.jsx`
+  (lazy panel); `Nations.jsx` now routes region clicks to the panel while admin
+  mode is active and polls `colors.json` so recolors show up live.
+
+### Fixed
+- Region ownership overrides (`regionOwnershipOverrides`, keyed by `GID_1`) now
+  actually repaint the map. They were matched against the `countries` fill layer,
+  whose features only carry `GID_0` — so per-region transfers never showed. The
+  override tint is now painted on the region-granular `regions` layer (previously
+  an invisible click-only layer).
+- Reassigned regions now show the *pure* new-owner color, and a country that loses
+  all its regions disappears from the map. Previously the `regions` override tint
+  (`0.66` opacity) was layered over the original owner's base `countries` fill
+  (also `0.66`), so an annexed region rendered as a muddy blend of both colors —
+  and the emptied country kept its label and base tint (a "ghost state"). The
+  `regions` layer is now the authoritative fill for every region, colored by its
+  *effective* owner (`override ?? GID_0`); the base `countries` fill is forced
+  transparent under any country that has region geometry (it still paints
+  countries with no regions, so no holes appear). Country labels
+  (`runtime/countryLabels.js`) now carry their `GID_0` code and are hidden when a
+  region-subdivided country owns zero remaining regions.
+- The region info popup (`Selection/Regions.jsx`) now reports a region's *effective*
+  owner — name and flag — by honoring `regionOwnershipOverrides`/`polityOverrides`
+  instead of the static `GID_0` baked into the tile. An annexed region used to keep
+  showing its original country (e.g. Istria still read "Croatia" after annexation).
 - `docs/ai-business-logic.md`: authoritative map of the AI layer — prompt
   templates and the full `${...}` variable reference, LLM dispatch, structured
   tasks, world initialization, and where game state lives and persists.

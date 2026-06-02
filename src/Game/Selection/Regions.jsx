@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMap } from "react-map-gl/maplibre";
-import { resolveCountryDisplayName } from "../../runtime/assets.js";
+import {
+  JSON_URLS,
+  loadCountryNames,
+  readJson,
+  resolveCountryDisplayName,
+} from "../../runtime/assets.js";
 
 let _setSelection = null;
 let _currentSelection = null;
 let _dismiss = null;
 
-export const onRegionSelected = ({ COUNTRY, NAME_1, GID_0, lngLat }) => {
+export const onRegionSelected = ({ COUNTRY, NAME_1, GID_0, GID_1, lngLat }) => {
     if (!_setSelection) return;
 
     const isSame =
@@ -20,7 +25,7 @@ export const onRegionSelected = ({ COUNTRY, NAME_1, GID_0, lngLat }) => {
     } else if (_currentSelection !== null) {
         _dismiss?.();
     } else {
-        _setSelection({ COUNTRY, NAME_1, GID_0, lngLat });
+        _setSelection({ COUNTRY, NAME_1, GID_0, GID_1, lngLat });
     }
 };
 
@@ -142,6 +147,7 @@ const RegionPopup = () => {
     const [dismissing, setDismissing] = useState(false);
     const [flagState, setFlagState] = useState(() => createFlagState());
     const [flagImageFailed, setFlagImageFailed] = useState(false);
+    const [ownerInfo, setOwnerInfo] = useState(null);
     const { current: map } = useMap();
 
     _setSelection = (value) => {
@@ -162,11 +168,49 @@ const RegionPopup = () => {
         setSelection(null);
         setFlagState(createFlagState());
         setFlagImageFailed(false);
+        setOwnerInfo(null);
         setDismissing(false);
     };
 
+    // Resolve the region's *effective* owner (region ownership overrides win over
+    // the static GID_0 baked into the tile), plus the owner's display name from
+    // polity overrides / the country catalog.
     useEffect(() => {
         if (!selection?.GID_0 && !selection?.COUNTRY) {
+            setOwnerInfo(null);
+            return;
+        }
+
+        let cancelled = false;
+        Promise.all([
+            readJson(JSON_URLS.world, { defaultValue: {}, force: true }),
+            loadCountryNames(),
+        ]).then(([world, names]) => {
+            if (cancelled) return;
+
+            const overrides = world?.regionOwnershipOverrides ?? {};
+            const polity = world?.polityOverrides ?? {};
+            const code = (selection.GID_1 && overrides[selection.GID_1]) || selection.GID_0;
+            const nameMap = new Map((names ?? []).map((entry) => [entry.code, entry.name]));
+            const name =
+                polity[code]?.name ||
+                nameMap.get(code) ||
+                resolveCountryDisplayName(selection.COUNTRY, code);
+
+            setOwnerInfo({ code, name });
+        }).catch(() => {
+            if (!cancelled) {
+                setOwnerInfo({ code: selection.GID_0, name: resolveCountryDisplayName(selection.COUNTRY, selection.GID_0) });
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selection?.COUNTRY, selection?.GID_0, selection?.GID_1]);
+
+    useEffect(() => {
+        if (!ownerInfo?.code && !ownerInfo?.name) {
             setFlagState(createFlagState());
             return;
         }
@@ -175,7 +219,7 @@ const RegionPopup = () => {
         setFlagState(createFlagState("loading"));
         setFlagImageFailed(false);
 
-        fetchFlagInfo(selection.GID_0, selection.COUNTRY).then((flagInfo) => {
+        fetchFlagInfo(ownerInfo.code, ownerInfo.name).then((flagInfo) => {
             if (cancelled) return;
 
             if (!flagInfo) {
@@ -189,7 +233,7 @@ const RegionPopup = () => {
         return () => {
             cancelled = true;
         };
-    }, [selection?.COUNTRY, selection?.GID_0]);
+    }, [ownerInfo?.code, ownerInfo?.name]);
 
     useEffect(() => {
         if (!map) return;
@@ -260,7 +304,7 @@ const RegionPopup = () => {
     if (!selection || !screenPos) return null;
 
     const { COUNTRY, NAME_1 } = selection;
-    const displayCountry = resolveCountryDisplayName(COUNTRY, selection.GID_0);
+    const displayCountry = ownerInfo?.name ?? resolveCountryDisplayName(COUNTRY, selection.GID_0);
     const POPUP_WIDTH = 210;
     const showFlagImage = Boolean(flagState.imageUrl && !flagImageFailed);
     const showFlagEmoji = Boolean(!showFlagImage && flagState.emoji);
