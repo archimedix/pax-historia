@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Minimal zero-dependency leveled logger (`server/log.js`): `debug`/`info`/`warn`/
+  `error` gated by `LOG_LEVEL` (default `info`), plus a `requestLogger` Express
+  middleware that logs one line per `/api` request (method, path, status, ms).
+  A single console call site keeps it drop-in replaceable by `pino` later.
 - Catalog entries for Qwen3.6 Plus and DeepSeek V4 (Pro + Flash) via OpenRouter.
 - **Server-managed AI models.** The server can now expose a catalog of
   pre-configured models (`server/config/serverModels.json`) and proxy chat

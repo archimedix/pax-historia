@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import url from "url";
 import { loadEnv } from "./env.js";
+import { log, requestLogger } from "./log.js";
 import { getServerModelCatalog, proxyChatCompletion } from "./aiProxy.js";
 import {
   createGame,
@@ -47,8 +48,12 @@ const uploadParser = express.raw({ type: () => true, limit: "2048mb" });
 ensureScenarioStore();
 ensureGameStore();
 
+app.use(requestLogger);
+
 const sendError = (res, statusCode, error) => {
   const message = error instanceof Error ? error.message : String(error);
+  if (statusCode >= 500) log.error(`${statusCode} ${message}`, error);
+  else log.debug(`${statusCode} ${message}`);
   res.status(statusCode).json({ error: message });
 };
 
@@ -359,5 +364,5 @@ app.get("*splat", (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  log.info(`Server running at http://localhost:${PORT}`);
 });

@@ -23,6 +23,8 @@ Open http://localhost:3000.
 - `npm run dev` (Vite, :5173) proxies `/api/*` → `:3000` (`vite.config.ts`); run the Express server
   alongside for data-driven work, or use the build+serve flow above.
 - `npm run lint` — ESLint over `**/*.{ts,tsx}`.
+- Server logging: `LOG_LEVEL` env (`debug`|`info`|`warn`|`error`, default `info`) controls verbosity
+  via `server/log.js`; each `/api` request logs one line (method, path, status, ms).
 
 ## Stack & tooling
 
@@ -60,8 +62,9 @@ injecting a server-held key from `.env` (keys never reach the client). See the A
   `library.js` / `scenarios.js` (external stores via `useSyncExternalStore`, talk to `/api`),
   `preload.js` (30s weighted startup pipeline), `gameState.js` (normalizers), `countryLabels.js`.
 - `server/` → `server.js` (Express + routes), `libraryStore.js` (scenarios **and** games),
-  `scenarioStore.js` (scenarios only), `env.js` (zero-dep `.env` loader), `aiProxy.js`
-  (managed-model catalog + key-injecting LLM proxy), `config/serverModels.json` (model catalog).
+  `scenarioStore.js` (scenarios only), `env.js` (zero-dep `.env` loader), `log.js` (zero-dep
+  leveled logger + `requestLogger` middleware), `aiProxy.js` (managed-model catalog +
+  key-injecting LLM proxy), `config/serverModels.json` (model catalog).
   `server/data/` is the on-disk store (gitignored except `scenarios/`).
 
 ### State management
