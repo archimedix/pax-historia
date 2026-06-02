@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Starting world briefing for the `default` scenario: `world.json` now seeds
+  `startingTimelineText` (major powers at 1 Jan 2016, with historical allies and
+  rivals) and `simulationRules`. This lore reaches the advisor, diplomacy, and the
+  structured tasks via the `WORLD_BEFORE_ROUND_ONE_TEXT` /
+  `HISTORICAL_PRESET_SIMULATION_RULES` helpers.
 - Minimal zero-dependency leveled logger (`server/log.js`): `debug`/`info`/`warn`/
   `error` gated by `LOG_LEVEL` (default `info`), plus a `requestLogger` Express
   middleware that logs one line per `/api` request (method, path, status, ms).
@@ -28,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files, add `CLAUDE.md`.
 - Updated `CLAUDE.md` for the server-managed-models architecture and the
   trunk-based git workflow.
+
+### Fixed
+- Broken template variables in the `default` scenario's `advisor`/`leader` prompts:
+  `${country}` (and the case-typo `${startdate}` in `leader`) were undefined and
+  rendered as empty strings. Replaced with the UPPERCASE helper aliases
+  (`${PLAYER_POLITY}`, `${STARTING_ROUND_DATE}`, `${ORIGIN_ROUND_DATE}`), and added a
+  world-context block so both prompts receive the world briefing and current summary.
 
 ### Removed
 - Dead legacy `server/scenarioStore.js`. It was a scenarios-only predecessor of
