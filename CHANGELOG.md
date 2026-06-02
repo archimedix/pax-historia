@@ -21,3 +21,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Consolidated fork-hygiene work onto `main`: ignore `.env`, remove stray empty
   files, add `CLAUDE.md`.
+- Updated `CLAUDE.md` for the server-managed-models architecture and the
+  trunk-based git workflow.

@@ -20,9 +20,8 @@ node server/server.js             # serves dist/ + /api on :3000  (PORT env over
 ```
 Open http://localhost:3000.
 
-- `npm run dev` (Vite, :5173) serves **UI only** — there is **no API proxy** (`vite.config.ts`), so
-  `/api/*` calls fail. For anything data-driven, use the build+serve flow above. To iterate on the
-  client with a live API, you must build, or add a proxy to Vite pointing at :3000.
+- `npm run dev` (Vite, :5173) proxies `/api/*` → `:3000` (`vite.config.ts`); run the Express server
+  alongside for data-driven work, or use the build+serve flow above.
 - `npm run lint` — ESLint over `**/*.{ts,tsx}`.
 
 ## Stack & tooling
@@ -43,9 +42,11 @@ Browser (React)  ──fetch /api──▶  Express (server.js)  ──▶  JSON
      └── calls the LLM directly (provider API) ── then PUTs resulting state back via /api
 ```
 
-**The server makes ZERO LLM calls.** All AI happens client-side: the browser interpolates the
-scenario's prompt templates, calls the chosen provider's API, parses the reply, and writes new
-state back through `/api/runtime/json/*`. Keep it that way unless deliberately moving AI server-side.
+**By default AI runs client-side**: the browser interpolates the scenario's prompt templates, calls
+the chosen provider's API directly (client-held key), parses the reply, and writes new state back
+through `/api/runtime/json/*`. **Exception — the `server` provider**: the browser calls
+`/api/llm/:modelId/chat/completions` and the server proxies to an OpenAI-compatible upstream,
+injecting a server-held key from `.env` (keys never reach the client). See the AI layer below.
 
 ### Layout
 - `src/main.jsx` → entry; registers the pmtiles maplibre protocol, mounts `App`.
@@ -59,8 +60,9 @@ state back through `/api/runtime/json/*`. Keep it that way unless deliberately m
   `library.js` / `scenarios.js` (external stores via `useSyncExternalStore`, talk to `/api`),
   `preload.js` (30s weighted startup pipeline), `gameState.js` (normalizers), `countryLabels.js`.
 - `server/` → `server.js` (Express + routes), `libraryStore.js` (scenarios **and** games),
-  `scenarioStore.js` (scenarios only). `server/data/` is the on-disk store (gitignored except
-  `scenarios/`).
+  `scenarioStore.js` (scenarios only), `env.js` (zero-dep `.env` loader), `aiProxy.js`
+  (managed-model catalog + key-injecting LLM proxy), `config/serverModels.json` (model catalog).
+  `server/data/` is the on-disk store (gitignored except `scenarios/`).
 
 ### State management
 No Redux/Zustand. Two patterns: external stores in `src/runtime/library.js`/`scenarios.js`
@@ -86,13 +88,15 @@ No Redux/Zustand. Two patterns: external stores in `src/runtime/library.js`/`sce
 - `/api/runtime/json/:key` — GET/PUT live game state (actions/chat/events/advisor). **This is where
   the client persists LLM output.**
 - `/api/runtime/pmtiles/:key` — streams map tiles with HTTP range (206) support.
+- `/api/config` — public list of server-managed models (`{id,label}` only, no keys).
+- `POST /api/llm/:modelId/chat/completions` — proxies to the model's upstream with a server-held key.
 
 Body limits are large (≈2GB) to allow scenario bundle import/export and tile uploads.
 
 ## AI / LLM layer (`src/Game/AI/`)
 
-- `providerConfig.js` — 4 providers, settings in `localStorage` (per-provider `apiKey`, `model`,
-  and `endpoint` for the compatible one):
+- `providerConfig.js` — 5 providers. The first four store settings in `localStorage` (per-provider
+  `apiKey`, `model`, and `endpoint` for the compatible one); `server` stores only a model `id`:
   - `gemini` → `https://generativelanguage.googleapis.com/...:generateContent` (default
     `gemini-3.1-flash-lite-preview`)
   - `openai` → `https://api.openai.com/v1/chat/completions` (model auto-discovered if blank)
@@ -101,8 +105,11 @@ Body limits are large (≈2GB) to allow scenario bundle import/export and tile u
   - `openai-compatible` → user `endpoint` + `/chat/completions` (**OpenRouter**, Ollama, LM Studio,
     vLLM). Default endpoint `http://localhost:11434/v1` (Ollama). For OpenRouter set endpoint
     `https://openrouter.ai/api/v1`.
-- `main.jsx` — `callAI(systemPrompt, history, opts)` dispatches by stored provider; per-provider
-  `callGemini`/`callOpenAI`/`callAnthropic` each retry 3× on 429/503. Gemini history format is
+  - `server` → server-managed: stores only a chosen model `id`, calls `/api/llm/:id/chat/completions`.
+    No key in the browser — keys/models are configured in `server/config/serverModels.json` + `.env`.
+- `main.jsx` — `callAI(systemPrompt, history, opts)` dispatches by stored provider;
+  `callGemini`/`callOpenAI`/`callAnthropic`/`callOpenAICompatible`/`callServerModel` each retry 3× on
+  429/503 (the last two share the OpenAI-style chat-completions path). Gemini history format is
   canonical; `toOpenAIMessages`/`toAnthropicMessages` convert it. Builds advisor and diplomatic
   system prompts from scenario prompts + current game data.
 - `gameplay.js` — `runJsonTask(key, {...})` for structured tasks (timeline jump, action
@@ -110,7 +117,8 @@ Body limits are large (≈2GB) to allow scenario bundle import/export and tile u
   `extractJsonPayload()` parses (direct → markdown fence → regex) with deterministic fallbacks.
 - `gameplayPrompts.js` — default system-prompt scaffolding.
 
-Keys live in `localStorage`, never in repo files — so they aren't at risk of being committed.
+Client-provider keys live in `localStorage`, never in repo files. The `server` provider's keys live
+in `.env` (gitignored, server-side only) — neither is at risk of being committed.
 
 ## Conventions
 
@@ -119,29 +127,22 @@ Keys live in `localStorage`, never in repo files — so they aren't at risk of b
 - Plain CSS in `src/styles.css` (dark theme, no Tailwind); layout often via inline styles.
 - pmtiles URL scheme is `pmtiles://<full-url>`; protocol registered once at startup.
 
-## Working on this fork (git hygiene)
+## Working on this fork (git workflow)
 
-This is a **public** fork. Commits are a public business card — keep them clean, atomic, and
-respectful of upstream. Separate what is *ours* from what belongs to *upstream*.
+This is a **public** fork; commits are a public business card — keep them clean, atomic, and
+respectful of upstream. Adopted model (KISS / YAGNI):
 
-- **Never commit to `main` directly, never force-push it.** `main` is a clean mirror of upstream —
-  keep it rebasable via `git fetch upstream && git rebase upstream/main`. Do all work on branches.
-- **One branch = one intent.** Don't mix cleanup, docs, and features in a single branch/commit.
+- **`main` is the fork's trunk.** Day-to-day fork work is committed **directly to `main`** with clean
+  conventional commits. Fork-only artifacts (`CLAUDE.md`, `CHANGELOG.md`, server tooling, personal
+  features) live here. Resync upstream with `git fetch upstream && git rebase upstream/main`.
+- **Branch only for a real upstream PR**, cut from `upstream/main`, holding *only* that change —
+  short-lived, deleted after merge. Don't pre-create branches.
+- **Ours vs upstream**: genuine fixes/improvements to the original → upstream PR branch. Personal
+  tooling (this `CLAUDE.md`, local experiments) stays on the fork.
 - **Commit messages**: English, conventional prefixes (`feat:`, `fix:`, `chore:`, `docs:`).
-- **License**: MIT — keep `LICENSE` and Tommi-K's copyright intact. Don't rewrite the README under
-  our name or remove credits.
-- **Avoid noisy diffs**: no reformatting / restyling existing files without a functional reason.
-
-### Upstream vs fork-only changes
-- **Bug fixes & genuine improvements** to the original → small, focused branch → **PR to upstream**
-  (`Tommi-K/pax-historia`). Example: removing the stray empty files `pax-historia@0.0.0` and `vite`
-  committed upstream by mistake — ideal as its own `fix/` PR.
-- **Personal tooling** (this `CLAUDE.md`, local experiments) → **stays on this fork**, not proposed
-  upstream unless the maintainer wants it. The "Fork notice" header marks such additions as ours.
-
-### Suggested branches
-| Branch | Holds | Destination |
-|---|---|---|
-| `main` | upstream mirror, never hand-edited | — |
-| `fix/remove-stray-files` | the two 0-byte files only | PR → upstream |
-| `docs/claude-md` | this CLAUDE.md | fork-only |
+- **Changelog**: update `CHANGELOG.md` (Keep a Changelog) in the same commit as the change.
+- **Secrets**: never commit `.env`/keys; stage explicit files, never `git add .` blindly. If a
+  secret is about to be staged, stop.
+- **License**: MIT — keep `LICENSE` and Tommi-K's copyright intact; don't rewrite the README under
+  our name or drop credits.
+- **No noisy diffs**: don't reformat/restyle existing files without a functional reason.
