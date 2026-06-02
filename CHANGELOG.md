@@ -24,3 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files, add `CLAUDE.md`.
 - Updated `CLAUDE.md` for the server-managed-models architecture and the
   trunk-based git workflow.
+
+### Removed
+- Dead legacy `server/scenarioStore.js`. It was a scenarios-only predecessor of
+  `server/libraryStore.js`, no longer imported anywhere; all of its exports have
+  live equivalents in `libraryStore.js`.
