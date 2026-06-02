@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docs/ai-business-logic.md`: authoritative map of the AI layer — prompt
+  templates and the full `${...}` variable reference, LLM dispatch, structured
+  tasks, world initialization, and where game state lives and persists.
+  `CLAUDE.md` now points to it as required reading for AI/prompt/state work.
 - Starting world briefing for the `default` scenario: `world.json` now seeds
   `startingTimelineText` (major powers at 1 Jan 2016, with historical allies and
   rivals) and `simulationRules`. This lore reaches the advisor, diplomacy, and the

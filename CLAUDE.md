@@ -10,6 +10,12 @@ Guidance for Claude Code when working in this repository.
 An open-source, self-hostable alternative to Pax Historia: an AI-driven grand-strategy game on an
 interactive world map. The browser is the brain — the server only stores JSON and streams map tiles.
 
+> **Read first for any AI/prompt/state work:** [`docs/ai-business-logic.md`](docs/ai-business-logic.md)
+> is the authoritative map of the AI layer — prompt templates and variables, the LLM dispatch,
+> structured tasks, where game state lives, and how it persists. Consult it before touching
+> `src/Game/AI/`, `prompts.json`/`world.json`, or `src/runtime/`, and keep it updated when that
+> behavior changes.
+
 ## Run
 
 ```bash
@@ -80,8 +86,10 @@ No Redux/Zustand. Two patterns: external stores in `src/runtime/library.js`/`sce
   state under `storage/` (`actions`, `chat`, `events`, `advisor`). Edits to a game never touch its
   scenario. A scenario can't be deleted while a game references it.
 - Manifests track order + active selection: `scenario-manifest.json`, `game-manifest.json`.
-- `prompts.json` holds the system prompts (`advisor`, `leader`) with `${country}`, `${date}`,
-  `${actions}`, `${chat}` … template vars interpolated **client-side**.
+- `prompts.json` holds the system prompts (`advisor`, `leader`, `tasks`, `helpers`) with `${...}`
+  template vars interpolated **client-side**. Prefer the UPPERCASE helper aliases
+  (`${PLAYER_POLITY}`, `${ORIGIN_ROUND_DATE}` …); see the full variable reference in
+  `docs/ai-business-logic.md` §8bis.
 
 ## API (all under `/api`, see `server/server.js`)
 
@@ -97,6 +105,8 @@ No Redux/Zustand. Two patterns: external stores in `src/runtime/library.js`/`sce
 Body limits are large (≈2GB) to allow scenario bundle import/export and tile uploads.
 
 ## AI / LLM layer (`src/Game/AI/`)
+
+> Full map of this layer (prompts, variables, tasks, persistence): `docs/ai-business-logic.md`.
 
 - `providerConfig.js` — 5 providers. The first four store settings in `localStorage` (per-provider
   `apiKey`, `model`, and `endpoint` for the compatible one); `server` stores only a model `id`:
